@@ -114,7 +114,7 @@ def validate_tools(args):
 def verify_library(args):
     library_checksums = init_library(args.library)
     print("Re-calculating checksums...")
-    library_files = collect_files(args.library, [".jpg", ".jpg", ".heic", ".mov", ".mp4"])
+    library_files = collect_files(args.library, [".jpg", ".jpg", ".heic", ".mov", ".mp4", ".avi"])
     new_checksums = {}
     for file in library_files:
         new_checksums[file["checksum"]] = basename(file["SourceFile"])
@@ -139,7 +139,7 @@ def import_to_library(args):
     print("Scanning for files to import...")
     extensions = [".jpg", ".jpeg"]
     extensions.extend([".heic"] if args.include_heic else [])
-    extensions.extend([".mov", ".mp4"] if args.include_video else [])
+    extensions.extend([".mov", ".mp4", ".avi"] if args.include_video else [])
 
     unfiltered_files = collect_files(os.getcwd(), extensions)
     seen = set()
@@ -153,10 +153,22 @@ def import_to_library(args):
         print(f"Importing {len(files_to_import)} files...")
         for file_info in files_to_import:
             file = file_info["SourceFile"]
-            date_info = file_info.get("DateTimeOriginal", file_info.get("CreateDate", None))
 
-            if date_info:
-                year, month, filename = date_info.split("|")
+            date_tags = ["DateTimeOriginal", "CreateDate", "ModifyDate"]
+            date_info = ""
+            for tag in date_tags:
+                date_info = file_info.get(tag, "")
+                if "|" in date_info:
+                    break
+
+            if "|" in date_info:
+                try:
+                    year, month, filename = date_info.split("|")
+                except Exception as e:
+                    print(file_info)
+                    print(e)
+                    exit("Bye!")
+                
                 folder = os.path.join(args.library, year, month)
                 library_checksums.update(import_file(file_info, folder, filename, args))
             else:
@@ -242,7 +254,7 @@ def init_library(library_location):
     else:
         print("Calculating checksums for existing photos...")
         checksums = {}
-        existing_photos = collect_files(library_location, [".jpg", ".jpeg", ".heic", ".mov", ".mp4"])
+        existing_photos = collect_files(library_location, [".jpg", ".jpeg", ".heic", ".mov", ".mp4", ".avi"])
         for existing_photo in existing_photos:
             checksums[existing_photo["checksum"]] = existing_photo["SourceFile"]
 
