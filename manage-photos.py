@@ -230,7 +230,8 @@ def collect_files(directory, extensions):
     try:
         output = run(command, stdout=PIPE, stderr=PIPE)
         output.check_returncode()
-    except:
+    except Exception as e:
+        print(output.stderr.decode("ascii"))
         exit("Failed to scan for files")
 
     if output.stdout:
