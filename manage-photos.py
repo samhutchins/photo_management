@@ -114,7 +114,7 @@ def validate_tools(args):
 def verify_library(args):
     library_checksums = init_library(args.library)
     print("Re-calculating checksums...")
-    library_files = collect_files(args.library, [".jpg", ".jpg", ".heic", ".mov", ".mp4", ".avi"])
+    library_files = collect_files(args.library, [".jpg", ".jpeg", ".heic", ".mov", ".mp4", ".avi"])
     new_checksums = {}
     for file in library_files:
         new_checksums[file["checksum"]] = basename(file["SourceFile"])
