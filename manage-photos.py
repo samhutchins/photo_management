@@ -14,7 +14,7 @@ import hashlib
 import pickle
 
 version = f"""\
-{basename(__file__)} 2020.1
+{basename(__file__)} 2020.2
 Copyright (c) 2020 Sam Hutchins\
 """
 
