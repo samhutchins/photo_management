@@ -13,16 +13,18 @@ import os
 import hashlib
 import pickle
 
+from .__init__ import __version__
+
 version = f"""\
-{basename(__file__)} 2020.2
-Copyright (c) 2020 Sam Hutchins\
+manage-photos {__version__}
+Copyright (c) 2020,2021 Sam Hutchins\
 """
 
-help = f"""\
+help = """\
 Allows you to import photos, and optionally videos, into a specified photo
 library.
 
-Usage: {basename(__file__)} COMMAND [OPTIONS...]
+Usage: manage-photos COMMAND [OPTIONS...]
 
 Commands:
   import        import photos/videos from the current working directory to the

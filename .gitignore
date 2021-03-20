@@ -4,3 +4,7 @@
 !README.md
 !LICENSE
 !*.py
+
+!photo_management/
+photo_management/*
+!photo_management/*.py
