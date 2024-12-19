@@ -49,7 +49,7 @@ class PhotoImporter:
             extensions.update({".mov", ".mp4", ".avi"})
 
         seen: set[str] = set()
-        files_to_import: list[Path] = list()
+        files_to_import: list[tuple[Path, Checksum]] = list()
         unfiltered_files = [
             file for file in Path.cwd().glob("*") if file.suffix.lower() in extensions
         ]
@@ -58,14 +58,14 @@ class PhotoImporter:
         ):
             checksum = self.__calculate_checksum(file)
             if checksum not in seen and checksum not in self.checksums:
-                files_to_import.append(file)
+                files_to_import.append((file, checksum))
                 seen.add(checksum)
 
         if files_to_import:
-            for file in rich.progress.track(
+            for file, checksum in rich.progress.track(
                 files_to_import, description="Importing files..."
             ):
-                new_checksums = self.__import_file(file, convert_heic)
+                new_checksums = self.__import_file(file, checksum, convert_heic)
                 if self.debug:
                     rich.print(new_checksums)
                 self.checksums.update(new_checksums)
@@ -132,7 +132,7 @@ class PhotoImporter:
         else:
             print("No database to compare against")
 
-    def __import_file(self, file: Path, convert_heic: bool) -> dict[Checksum, Filename]:
+    def __import_file(self, file: Path, source_checksum: Checksum, convert_heic: bool) -> dict[Checksum, Filename]:
         with Image.open(file) as image:
             exif_data: Exif = image.getexif()
 
@@ -177,7 +177,7 @@ class PhotoImporter:
 
             target_file = self.__get_unique_filename(folder, stem, ext)
 
-            checksums[self.__calculate_checksum(file)] = target_file.name
+            checksums[source_checksum] = target_file.name
             if convert_heic and file.suffix.lower() == ".heic":
                 with Image.open(file) as image:
                     image.save(target_file, format="jpeg", exif=exif_data)
@@ -190,7 +190,7 @@ class PhotoImporter:
             stem = file.stem
             ext = file.suffix
             target_file = self.__get_unique_filename(folder, stem, ext)
-            checksums[self.__calculate_checksum(file)] = target_file.name
+            checksums[source_checksum] = target_file.name
             shutil.copy2(file, target_file)
 
         return checksums
