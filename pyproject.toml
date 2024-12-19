@@ -1,0 +1,27 @@
+[project]
+name = "photo-management"
+version = "2024.1"
+description = "Tools for managing a simple photo library"
+readme = "README.md"
+authors = [
+    { name = "Sam H", email = "samhutchins@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=11.0.0",
+    "rich>=13.9.4",
+    "typer>=0.15.1",
+]
+
+[project.scripts]
+manage-photos = "photo_management.photo_management:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "ruff>=0.8.3",
+]

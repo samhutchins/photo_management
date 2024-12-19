@@ -1,10 +1,12 @@
-/*
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
 
-!.gitignore
-!README.md
-!LICENSE
-!*.py
+# Virtual environments
+.venv
 
-!photo_management/
-photo_management/*
-!photo_management/*.py
+.idea
