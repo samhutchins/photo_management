@@ -2,18 +2,28 @@ from __future__ import annotations
 
 import hashlib
 import pickle
-from functools import cached_property
+import shutil
+from datetime import datetime
 from itertools import zip_longest
 from pathlib import Path
 
+import PIL.ExifTags as ExifTags
+import dateutil.parser
 import rich
 import rich.progress
+from PIL import Image
+from PIL.Image import Exif
+from pillow_heif import register_heif_opener  # type: ignore
+from rich.panel import Panel
 from rich.table import Table
+from typer import Abort
 
 type Checksum = str
 type Filename = str
 
 DATA_FILE = "library.pickle"
+
+register_heif_opener()
 
 
 class PhotoImporter:
@@ -22,39 +32,60 @@ class PhotoImporter:
     def __init__(self, *, library_path: Path, debug: bool = False) -> None:
         self.library_path = library_path
         self.debug = debug
-
-    @cached_property
-    def library_checksums(self) -> dict[Checksum, Filename]:
-        if self.debug:
-            print("Loading library checksums")
-
-        pickle_path = self.library_path / DATA_FILE
-        library: dict[Checksum, Filename]
-        if pickle_path.exists():
-            with open(pickle_path, "rb") as f:
-                library = pickle.load(f)
-        else:
-            library = self.__calculate_checksums(self.library_path)
-            with open(pickle_path, "wb") as f:
-                pickle.dump(library, f)
-
-        if self.debug:
-            rich.print(library)
-
-        return library
+        self.checksums = self.__init_checksums()
 
     def import_photos(
         self, include_heic: bool, convert_heic: bool, include_video: bool
     ) -> None:
-        print("import")
+        if convert_heic and not shutil.which("magick"):
+            print("Unable to locate `magick`, required for converting heic")
+            raise Abort()
+
+        extensions: set[str] = {".jpg", ".jpeg"}
+        if include_heic:
+            extensions.add(".heic")
+
+        if include_video:
+            extensions.update({".mov", ".mp4", ".avi"})
+
+        seen: set[str] = set()
+        files_to_import: list[Path] = list()
+        unfiltered_files = [
+            file for file in Path.cwd().glob("*") if file.suffix.lower() in extensions
+        ]
+        for file in rich.progress.track(
+            unfiltered_files, description="Scanning for files to import..."
+        ):
+            checksum = self.__calculate_checksum(file)
+            if checksum not in seen and checksum not in self.checksums:
+                files_to_import.append(file)
+                seen.add(checksum)
+
+        if files_to_import:
+            for file in rich.progress.track(
+                files_to_import, description="Importing files..."
+            ):
+                new_checksums = self.__import_file(file, convert_heic)
+                if self.debug:
+                    rich.print(new_checksums)
+                self.checksums.update(new_checksums)
+
+            with open(self.library_path / DATA_FILE, "wb") as f:
+                pickle.dump(self.checksums, f)
+        else:
+            print("No files to import")
 
     def verify_library(self) -> None:
         checksums_file = self.library_path / DATA_FILE
         if checksums_file.exists():
             with open(checksums_file, "rb") as f:
-                existing_checksums: dict[Filename, list[Checksum]] = self.__flip(pickle.load(f))
+                existing_checksums: dict[Filename, list[Checksum]] = self.__flip(
+                    pickle.load(f)
+                )
 
-            new_checksums: dict[Filename, list[Checksum]] = self.__flip(self.__calculate_checksums(self.library_path))
+            new_checksums: dict[Filename, list[Checksum]] = self.__flip(
+                self.__calculate_checksums(self.library_path)
+            )
 
             checksum_changed: set[str] = set()
             present_in_db_but_not_disk: set[str] = set()
@@ -67,7 +98,9 @@ class PhotoImporter:
                 if (
                     filename in existing_checksums
                     and filename in new_checksums
-                    and not set(existing_checksums[filename]).intersection(new_checksums[filename])
+                    and not set(existing_checksums[filename]).intersection(
+                        new_checksums[filename]
+                    )
                 ):
                     checksum_changed.add(filename)
                 elif filename in existing_checksums and filename not in new_checksums:
@@ -99,6 +132,79 @@ class PhotoImporter:
         else:
             print("No database to compare against")
 
+    def __import_file(self, file: Path, convert_heic: bool) -> dict[Checksum, Filename]:
+        with Image.open(file) as image:
+            exif_data: Exif = image.getexif()
+
+        if self.debug:
+            content: str = ""
+            for key, value in exif_data.items():
+                content += f"{ExifTags.TAGS[key]}: {value}\n"
+
+            panel = Panel(content, title="Exif Data", expand=False)
+            rich.print(panel)
+
+        date_time: datetime | None = None
+        for tag in [ExifTags.Base.DateTime, ExifTags.Base.DateTimeOriginal]:
+            try:
+                try:
+                    date_time = datetime.strptime(exif_data[tag], "%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    date_time = dateutil.parser.parse(exif_data[tag])
+
+                if self.debug:
+                    print(date_time)
+                break
+            except KeyError:
+                if self.debug:
+                    print(f"Failed to find tag {ExifTags.TAGS[tag]}")
+                continue
+
+        checksums: dict[Checksum, Filename] = dict()
+        if date_time:
+            folder: Path = (
+                self.library_path
+                / date_time.strftime("%Y")
+                / date_time.strftime("%m - %B")
+            )
+            folder.mkdir(parents=True, exist_ok=True)
+            stem: str = date_time.strftime("%Y-%m-%d %H-%M-%S")
+            ext: str = (
+                ".jpg"
+                if convert_heic and file.suffix.lower() == ".heic"
+                else file.suffix.lower()
+            )
+
+            target_file = self.__get_unique_filename(folder, stem, ext)
+
+            checksums[self.__calculate_checksum(file)] = target_file.name
+            if convert_heic and file.suffix.lower() == ".heic":
+                with Image.open(file) as image:
+                    image.save(target_file, format="jpeg", exif=exif_data)
+                checksums[self.__calculate_checksum(target_file)] = target_file.name
+            else:
+                shutil.copy2(file, target_file)
+        else:
+            folder = self.library_path / "errors"
+            folder.mkdir(parents=True, exist_ok=True)
+            stem = file.stem
+            ext = file.suffix
+            target_file = self.__get_unique_filename(folder, stem, ext)
+            checksums[self.__calculate_checksum(file)] = target_file.name
+            shutil.copy2(file, target_file)
+
+        return checksums
+
+    @staticmethod
+    def __get_unique_filename(folder: Path, stem: str, ext: str) -> Path:
+        target_file: Path = folder / (stem + ext)
+        suffix = "a"
+        while target_file.exists():
+            target_file = target_file.with_stem(stem + suffix)
+            suffix = chr(ord(suffix) + 1)
+
+        return target_file
+
     def __calculate_checksums(self, path: Path) -> dict[Checksum, Filename]:
         checksums: dict[Checksum, Filename] = dict()
         existing_photos = [
@@ -111,7 +217,6 @@ class PhotoImporter:
             existing_photos, description="Calculating checksums..."
         ):
             #  TODO this needs to be a relative path, not just the filename
-            #  TODO swap keys and values?
             checksums[self.__calculate_checksum(photo)] = photo.name
 
         return checksums
@@ -123,7 +228,9 @@ class PhotoImporter:
 
         return hash_func.hexdigest()
 
-    def __flip(self, dictionary: dict[Checksum, Filename]) -> dict[Filename, list[Checksum]]:
+    def __flip(
+        self, dictionary: dict[Checksum, Filename]
+    ) -> dict[Filename, list[Checksum]]:
         flipped: dict[Filename, list[Checksum]] = dict()
         for key, value in dictionary.items():
             values: list[Filename] = flipped.get(value, list())
@@ -132,3 +239,21 @@ class PhotoImporter:
 
         return flipped
 
+    def __init_checksums(self) -> dict[Checksum, Filename]:
+        if self.debug:
+            print("Loading library checksums")
+
+        pickle_path = self.library_path / DATA_FILE
+        library: dict[Checksum, Filename]
+        if pickle_path.exists():
+            with open(pickle_path, "rb") as f:
+                library = pickle.load(f)
+        else:
+            library = self.__calculate_checksums(self.library_path)
+            with open(pickle_path, "wb") as f:
+                pickle.dump(library, f)
+
+        if self.debug:
+            rich.print(library)
+
+        return library

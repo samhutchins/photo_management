@@ -50,9 +50,7 @@ def import_(
     ] = False,
     convert_heic: Annotated[
         bool,
-        Option(
-            help="convert heic files to the more compatible jpeg format (requires `magick`)"
-        ),
+        Option(help="convert heic files to the more compatible jpeg format"),
     ] = False,
     include_video: Annotated[
         bool, Option(help="include videos when scanning for files to import")

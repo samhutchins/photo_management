@@ -8,7 +8,9 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "pillow-heif>=0.21.0",
     "pillow>=11.0.0",
+    "python-dateutil>=2.9.0.post0",
     "rich>=13.9.4",
     "typer>=0.15.1",
 ]
@@ -24,4 +26,5 @@ build-backend = "hatchling.build"
 dev = [
     "mypy>=1.13.0",
     "ruff>=0.8.3",
+    "types-python-dateutil>=2.9.0.20241206",
 ]
