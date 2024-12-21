@@ -6,14 +6,12 @@ import shutil
 from datetime import datetime
 from itertools import zip_longest
 from pathlib import Path
+from typing import Any
 
-import PIL.ExifTags as ExifTags
 import dateutil.parser
 import rich
 import rich.progress
-from PIL import Image
-from PIL.Image import Exif
-from pillow_heif import register_heif_opener  # type: ignore
+from exiftool import ExifToolHelper  # type: ignore
 from rich.panel import Panel
 from rich.table import Table
 from typer import Abort
@@ -23,24 +21,21 @@ type Filename = str
 
 DATA_FILE = "library.pickle"
 
-register_heif_opener()
-
 
 class PhotoImporter:
     __all_extensions: set[str] = {".jpg", ".jpeg", ".heic", ".mov", ".mp4", ".avi"}
 
     def __init__(self, *, library_path: Path, debug: bool = False) -> None:
-        self.library_path = library_path
-        self.debug = debug
-        self.checksums = self.__init_checksums()
-
-    def import_photos(
-        self, include_heic: bool, convert_heic: bool, include_video: bool
-    ) -> None:
-        if convert_heic and not shutil.which("magick"):
-            print("Unable to locate `magick`, required for converting heic")
+        if not shutil.which("exiftool"):
+            print("Unable to locate required tool `exiftool`")
             raise Abort()
 
+        self.library_path = library_path
+        self.debug = debug
+        self.exiftool = ExifToolHelper()
+        self.checksums = self.__init_checksums()
+
+    def import_photos(self, include_heic: bool, include_video: bool) -> None:
         extensions: set[str] = {".jpg", ".jpeg"}
         if include_heic:
             extensions.add(".heic")
@@ -65,7 +60,7 @@ class PhotoImporter:
             for file, checksum in rich.progress.track(
                 files_to_import, description="Importing files..."
             ):
-                new_checksums = self.__import_file(file, checksum, convert_heic)
+                new_checksums = self.__import_file(file, checksum)
                 if self.debug:
                     rich.print(new_checksums)
                 self.checksums.update(new_checksums)
@@ -132,32 +127,38 @@ class PhotoImporter:
         else:
             print("No database to compare against")
 
-    def __import_file(self, file: Path, source_checksum: Checksum, convert_heic: bool) -> dict[Checksum, Filename]:
-        with Image.open(file) as image:
-            exif_data: Exif = image.getexif()
+    def __import_file(
+        self, file: Path, source_checksum: Checksum
+    ) -> dict[Checksum, Filename]:
+        exif_tags: dict[str, Any] = self.exiftool.get_metadata([file], None)[0]
 
         if self.debug:
             content: str = ""
-            for key, value in exif_data.items():
-                content += f"{ExifTags.TAGS[key]}: {value}\n"
+            for key, value in exif_tags.items():
+                content += f"{key}: {value}\n"
 
             panel = Panel(content, title="Exif Data", expand=False)
             rich.print(panel)
 
         date_time: datetime | None = None
-        for tag in [ExifTags.Base.DateTime, ExifTags.Base.DateTimeOriginal]:
+        for tag in [
+            "EXIF:DateTimeOriginal",
+            "EXIF:CreateDate",
+            "XMP:CreateDate",
+            "QuickTime:CreateDate",
+        ]:
             try:
                 try:
-                    date_time = datetime.strptime(exif_data[tag], "%Y:%m:%d %H:%M:%S")
+                    date_time = datetime.strptime(exif_tags[tag], "%Y:%m:%d %H:%M:%S")
                 except ValueError:
-                    date_time = dateutil.parser.parse(exif_data[tag])
+                    date_time = dateutil.parser.parse(exif_tags[tag])
 
                 if self.debug:
                     print(date_time)
                 break
             except KeyError:
                 if self.debug:
-                    print(f"Failed to find tag {ExifTags.TAGS[tag]}")
+                    print(f"Failed to find tag {tag}")
                 continue
 
         checksums: dict[Checksum, Filename] = dict()
@@ -167,31 +168,16 @@ class PhotoImporter:
                 / date_time.strftime("%Y")
                 / date_time.strftime("%m - %B")
             )
-            folder.mkdir(parents=True, exist_ok=True)
             stem: str = date_time.strftime("%Y-%m-%d %H-%M-%S")
-            ext: str = (
-                ".jpg"
-                if convert_heic and file.suffix.lower() == ".heic"
-                else file.suffix.lower()
-            )
-
-            target_file = self.__get_unique_filename(folder, stem, ext)
-
-            checksums[source_checksum] = target_file.name
-            if convert_heic and file.suffix.lower() == ".heic":
-                with Image.open(file) as image:
-                    image.save(target_file, format="jpeg", exif=exif_data)
-                checksums[self.__calculate_checksum(target_file)] = target_file.name
-            else:
-                shutil.copy2(file, target_file)
         else:
             folder = self.library_path / "errors"
-            folder.mkdir(parents=True, exist_ok=True)
             stem = file.stem
-            ext = file.suffix
-            target_file = self.__get_unique_filename(folder, stem, ext)
-            checksums[source_checksum] = target_file.name
-            shutil.copy2(file, target_file)
+
+        folder.mkdir(parents=True, exist_ok=True)
+        ext = file.suffix
+        target_file = self.__get_unique_filename(folder, stem, ext)
+        checksums[source_checksum] = target_file.name
+        shutil.copy2(file, target_file)
 
         return checksums
 

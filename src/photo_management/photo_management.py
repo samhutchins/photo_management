@@ -48,10 +48,6 @@ def import_(
     include_heic: Annotated[
         bool, Option(help="include heic files when scanning for files to import")
     ] = False,
-    convert_heic: Annotated[
-        bool,
-        Option(help="convert heic files to the more compatible jpeg format"),
-    ] = False,
     include_video: Annotated[
         bool, Option(help="include videos when scanning for files to import")
     ] = False,
@@ -59,7 +55,7 @@ def import_(
     """
     Import photos and videos from the current working directory into the photo library
     """
-    importer.import_photos(include_heic, convert_heic, include_video)
+    importer.import_photos(include_heic, include_video)
 
 
 @app.command(name="verify")
