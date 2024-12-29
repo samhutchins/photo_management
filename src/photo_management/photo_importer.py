@@ -58,7 +58,7 @@ class PhotoImporter:
 
         if files_to_import:
             for file, checksum in rich.progress.track(
-                files_to_import, description="Importing files..."
+                files_to_import, description=f"Importing {len(files_to_import)} files..."
             ):
                 new_checksums = self.__import_file(file, checksum)
                 if self.debug:
